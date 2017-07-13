@@ -63,73 +63,6 @@ gpl = tbl(db, 'gpl')
 gsm = tbl(db, 'gsm')
 gse_gsm = tbl(db, 'gse_gsm')
 
-#get_files = TRUE
-get_files = FALSE
-if (get_files) {
-  # get raw CEL files
-  rawFilePaths = lapply(gsm_to_keep, function(x) {
-      getGEOSuppFiles(x) # confirm this is the right function
-  })
-  
-  tar_dirs = list.files(pattern = "GSM")
-  tar_files = lapply(tar_dirs, list.files, pattern = ".tar", full.names = TRUE)
-  
-  # these are downloaded as tar archives so need to extract
-  # for the next step they should all be in the same directory, 'all_geo'
-  lapply(tar_files, function(x) {
-    untar(x, exdir = 'all_geo') 
-  })
-
-# New approach: Normalize together ------------------------------------------------------------
-all_geo_files = list.files("all_geo", full.names = TRUE)
-all_data = ReadAffy(filenames = all_geo_files)
-
-all_eset = rma(all_data)
-
-all_pData = pData(all_eset)
-
-gsm = str_match(rownames(all_pData), "(GSM[[:alnum:]]+)")[,2]
-
-pheno_df = pheno %>% add_rownames("gsm") 
-
-all_pData_df = all_pData %>% mutate(gsm = gsm) %>% 
-  left_join(pheno, by = c("gsm" = "geo_accession")) %>% 
-  dplyr::select(gsm, Study, tissue)
-
-rownames(all_pData_df) = rownames(all_pData)
-pData(all_eset) = all_pData_df
-
-all_eset_final = all_eset[,!is.na(pData(all_eset)$Study)]
-
-pData(all_eset_final) %>% View
-
-identical(colnames(exprs(all_eset_final)), rownames(pData(all_eset_final)))
-
-run_tsne(t(exprs(all_eset_final)), pData(all_eset_final))
-
-
-# ok that looks good let's save this now
-
-save(all_eset_final, file = "final_processed_data_2017-06-25.rda")
-
-} else {
-  load("esets_2017-06-25.rda")
-}
-
-
-### DE
-
-ID = featureNames(all_eset_final)
-Symbol = getSYMBOL(ID, "hgu133plus2.db")
-fData(all_eset_final) = data.frame(Symbol = Symbol)
-
-eset = all_eset_final
-
-tissue = pData(eset)$tissue
-design = model.matrix(~0 + tissue)
-colnames(design) = c(UIa,UIb,UIc)
-
-
 ########################################
 #$#$#$#$#$#$    Shiny App  $#$#$#$#$#$#$
 ########################################
@@ -143,13 +76,17 @@ ui <- fluidPage(
   #creation of a navigation bar and mulitple pages
   navbarPage("Bioinformatics Software",
              tabPanel("Search for GEO data series (GSE)",  
-                      #setting user inputed values and displaying values back at the user
+                      #search GSE, and select which to include
                       helpText("After searching, click on the second tab to proceed to the next page"),
                       textInput("Key", "Enter search terms, separated by commas", value = ""),
                       actionButton("Search", "Search")
-                      #verbatimTextOutput("Commas"), 
-                      #verbatimTextOutput("Ncommas"), 
-                      #verbatimTextOutput("Searchterms2")
+             ),
+             tabPanel("Select GEO data series (GSE)", uiOutput("page1"), 
+                      helpText("Highlight the desired search results (GSE) and click 'Retrieve GSM' to proceed"),
+                      actionButton("GSE-GSM", "Retrieve GSM"),
+                      helpText("Do not click 'finish' until all selections have been made. 
+                               This button removes the unselected rows and generates a new table on the next page."),
+                      DT::dataTableOutput("gse-gsm_table")
              ),
              tabPanel("Define categories for GEO samples (GSM)", uiOutput("page2"), 
                       helpText("Define the categories that you wish to compare. 
@@ -243,6 +180,11 @@ server <- function(input, output) {
     )
   )
   
+  output$gse-gsm_table <- DT::renderDataTable({
+    if (input$GSE-GSM == 0)
+      return (filteredgsm()[,c(1,2,7,19)]) ###
+    else ## breaks when there is no search results
+      return (rows$df[,c(1,2,7,19)])}, options=list(searching=TRUE)) ###
   
   output$gsm_table <- DT::renderDataTable({
     if (input$Lock == 0)
