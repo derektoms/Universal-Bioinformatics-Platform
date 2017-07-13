@@ -1,4 +1,4 @@
-# 2017-06-19
+# 2017-07-13
 
 ########################################
 #$#$#$#$#$#$    HEADER     $#$#$#$#$#$#$
@@ -63,14 +63,14 @@ gpl = tbl(db, 'gpl')
 gsm = tbl(db, 'gsm')
 gse_gsm = tbl(db, 'gse_gsm')
 
+# fill each row with 'not assigned' label, until they are placed in groups
+as.data.frame.DataTable(gse) -> gse_selected
+gse_selected$category <- rep("Not yet assigned", nrow(gse_selected))
+
+
 ########################################
 #$#$#$#$#$#$    Shiny App  $#$#$#$#$#$#$
 ########################################
-
-# fill each row with 'not assigned' label, until they are placed in groups
-as.data.frame.DataTable(gse) -> gsm_selected
-gsm_selected$category <- rep("Not yet assigned", nrow(gsm_selected))
-
 
 ui <- fluidPage(
   #creation of a navigation bar and mulitple pages
@@ -83,10 +83,11 @@ ui <- fluidPage(
              ),
              tabPanel("Select GEO data series (GSE)", uiOutput("page1"), 
                       helpText("Highlight the desired search results (GSE) and click 'Retrieve GSM' to proceed"),
-                      actionButton("GSE-GSM", "Retrieve GSM"),
+                      actionButton("GSE_GSM", "Retrieve GSM"),
                       helpText("Do not click 'finish' until all selections have been made. 
                                This button removes the unselected rows and generates a new table on the next page."),
-                      DT::dataTableOutput("gse-gsm_table")
+                      DT::dataTableOutput("gse_gsm_table")
+                      
              ),
              tabPanel("Define categories for GEO samples (GSM)", uiOutput("page2"), 
                       helpText("Define the categories that you wish to compare. 
@@ -99,11 +100,11 @@ ui <- fluidPage(
              # changed the format of this slightly to accomodate the DT package (for row selection)
              tabPanel("Assign samples to categories", uiOutput("page3"), 
                       helpText("Highlight the desired search results and click 'assign' to assign them to the specificed category"),
-                      actionButton("Lock", "Assign Categories"),
+                      actionButton("Assign", "Assign Categories"),
                       actionButton("Remove", "Finalize selections and remove not included"),
                       helpText("Do not click 'finish' until all selections have been made. 
                                This button removes the unselected rows and generates a new table on the next page."),
-                      DT::dataTableOutput("gsm_table")
+                      verbatimTextOutput("good_gse")#DT::dataTableOutput("gsm_table")
              ),
              tabPanel("Selection details", uiOutput("page4"), 
                       tableOutput("finishedtable")
@@ -112,51 +113,43 @@ ui <- fluidPage(
 )
 
 server <- function(input, output) {
-  
+  ## Search functions
   Totalchar <- eventReactive(input$Search, {nchar(input$Key)})
-  
   Commas <- eventReactive(input$Search, {which(strsplit(input$Key, "")[[1]]==",")})
-  
   Ncommas <- eventReactive(input$Search, {length(Commas())})
-  
   Commasstart <- eventReactive(input$Search, {Commas() + 1})
-  
   Commasend <- eventReactive(input$Search, {Commas() - 1})
-  
   Searchterms <- eventReactive(input$Search, {
     substring(input$Key, c(1, Commasstart()), c(Commasend(), Totalchar()))
   })
   
-  # Searchterms2 <- eventReactive(input$Search, {
-  #   paste0("//b", Searchterms(), "//b")
-  # })
-  # 
-  # Searchterms3 <- eventReactive(input$Search, {
-  #   gsub(",//b", "//b|", Searchterms2())
-  # })
+  filteredgse <- eventReactive(input$Search, {dplyr::filter(gse_selected, str_detect(gse_selected$title, Searchterms()))})
   
-  filteredgsm <- eventReactive(input$Search, {dplyr::filter(gsm_selected, str_detect(gsm_selected$title, Searchterms()))})
-  
-  # List of the GSM associated with the selected GSE
-  gsegsm2 <- eventReactive(input$Search, {filter(gse_gsm,gse %in% filteredgsm()$gse)}) # list of series and associated samples
-  gsm2 <- eventReactive(input$Search, {filter(gsm,series_id %in% filteredgsm()$gse)}) # detailed sample information
-  
+  ## Collect samples to use (GSE - GSM)
+    # List of the GSM associated with the selected GSE
+  gse_to_keep <- eventReactive(input$GSE_GSM, {
+      gse_to_keep <<- filteredgse[input$gsm_table_rows_selected,"GSE"]
+      #rows$gse <- gse_to_keep
+      #gsm2 <<- filter(gsm,series_id %in% filteredgse()$gse)
+  })
+   
+  ## Assign categories to each sample (GSM)
   #import dataframe as reactive
-  #for some reason this line is not needed
-  rows <- reactiveValues() 
-  observeEvent(input$Lock, {
+  #for some reason the following line is not needed:
+  #rows <- reactiveValues() 
+  eventReactive(input$Assign, {
     #s <- eventReactive(input$Lock, input$gsm_table_rows_selected)
-    if (input$Lock == 1) {
-      gsm_selected <- filteredgsm()
-      gsm_selected[input$gsm_table_rows_selected,"category"] <- input$selection
-      rows$df <- gsm_selected
-      gsm_selected <<- rows$df # '<<-' is necessary to get this to the enclosing environment
+    if (input$Assign == 1) {
+      gse_selected <- filteredgse()
+      gse_selected[input$gse_gsm_table_rows_selected,"category"] <- input$selection
+      rows$df <- gse_selected
+      gse_selected <<- rows$df # '<<-' is necessary to get this to the enclosing environment
     }
     else
     {
-      gsm_selected[input$gsm_table_rows_selected,"category"] <- input$selection
-      rows$df <- gsm_selected
-      gsm_selected <<- rows$df
+      gse_selected[input$gse_gsm_table_rows_selected,"category"] <- input$selection
+      rows$df <- gse_selected
+      gse_selected <<- rows$df
     }
   })
   
@@ -164,10 +157,8 @@ server <- function(input, output) {
     dplyr::filter(rows$df, category %in% c(input$cat1, input$cat2, input$cat3))
   })
   
-  #output$Commas <- renderText(Commas())
-  #output$Ncommas <- renderText(Ncommas())
-  #output$Searchterms2 <- renderText(Searchterms())
-  
+ 
+  ## Outputs
   output$page3 <- renderUI(
     fluidRow(
       column(3,
@@ -180,23 +171,25 @@ server <- function(input, output) {
     )
   )
   
-  output$gse-gsm_table <- DT::renderDataTable({
-    if (input$GSE-GSM == 0)
-      return (filteredgsm()[,c(1,2,7,19)]) ###
+  output$good_gse <- "Nothing yet"
+  
+  output$gse_gsm_table <- DT::renderDataTable({
+    if (input$GSE_GSM == 0)
+      return (gsm2()) ###
     else ## breaks when there is no search results
-      return (rows$df[,c(1,2,7,19)])}, options=list(searching=TRUE)) ###
+      return (rows$df)}, options=list(searching=TRUE)) ###
   
   output$gsm_table <- DT::renderDataTable({
-    if (input$Lock == 0)
-      return (filteredgsm()[,c(1,2,7,19)])
+    if (input$Assign == 0)
+      return filteredgsm())
     else ## breaks when there is no search results
-      return (rows$df[,c(1,2,7,19)])}, options=list(searching=TRUE))
+      return (rows$df), options=list(searching=TRUE)})
 
   output$finishedtable <- renderTable({
     if (input$Remove == 0)
-      return (filteredgsm()[,c(1,2,7,19)])
+      return (gsm2())
     else
-      return (finishedtable()[,c(1,2,3,7,19)])})
+      return (finishedtable())})
   
 }
 
