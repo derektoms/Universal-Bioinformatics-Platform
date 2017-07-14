@@ -64,8 +64,7 @@ gsm = tbl(db, 'gsm')
 gse_gsm = tbl(db, 'gse_gsm')
 
 # fill each row with 'not assigned' label, until they are placed in groups
-as.data.frame.DataTable(gse) -> gse_selected
-gse_selected$category <- rep("Not yet assigned", nrow(gse_selected))
+# gse_selected$category <- rep("Not yet assigned", nrow(gse_selected))
 
 
 ########################################
@@ -86,7 +85,8 @@ ui <- fluidPage(
                       actionButton("GSE_GSM", "Retrieve GSM"),
                       helpText("Do not click 'finish' until all selections have been made. 
                                This button removes the unselected rows and generates a new table on the next page."),
-                      DT::dataTableOutput("gse_gsm_table")
+                      DT::dataTableOutput("filteredgse"),
+                      tableOutput("GSElist")
                       
              ),
              tabPanel("Define categories for GEO samples (GSM)", uiOutput("page2"), 
@@ -104,7 +104,7 @@ ui <- fluidPage(
                       actionButton("Remove", "Finalize selections and remove not included"),
                       helpText("Do not click 'finish' until all selections have been made. 
                                This button removes the unselected rows and generates a new table on the next page."),
-                      verbatimTextOutput("good_gse")#DT::dataTableOutput("gsm_table")
+                      DT::dataTableOutput("gsm_table")
              ),
              tabPanel("Selection details", uiOutput("page4"), 
                       tableOutput("finishedtable")
@@ -113,22 +113,31 @@ ui <- fluidPage(
 )
 
 server <- function(input, output) {
+  as.data.frame.DataTable(gse) -> gse.df
+  as.data.frame.DataTable(gse_gsm) -> gse_gsm.df
+  gse_to_filter <- data.frame(gse="")
   ## Search functions
   Totalchar <- eventReactive(input$Search, {nchar(input$Key)})
   Commas <- eventReactive(input$Search, {which(strsplit(input$Key, "")[[1]]==",")})
   Ncommas <- eventReactive(input$Search, {length(Commas())})
   Commasstart <- eventReactive(input$Search, {Commas() + 1})
   Commasend <- eventReactive(input$Search, {Commas() - 1})
+  
   Searchterms <- eventReactive(input$Search, {
     substring(input$Key, c(1, Commasstart()), c(Commasend(), Totalchar()))
   })
   
-  filteredgse <- eventReactive(input$Search, {dplyr::filter(gse_selected, str_detect(gse_selected$title, Searchterms()))})
+  filtered_gse <- eventReactive(input$Search, {
+    dplyr::filter(gse.df, str_detect(gse.df$title, Searchterms()))
+  })
   
   ## Collect samples to use (GSE - GSM)
     # List of the GSM associated with the selected GSE
+  
   gse_to_keep <- eventReactive(input$GSE_GSM, {
-      gse_to_keep <<- filteredgse[input$gsm_table_rows_selected,"GSE"]
+    filtered_gse()[input$filteredgse_rows_selected,c(3,7)]
+    
+   #     filtered_gse[input$filtered_gse_rows_selected,"gse"]
       #rows$gse <- gse_to_keep
       #gsm2 <<- filter(gsm,series_id %in% filteredgse()$gse)
   })
@@ -171,26 +180,29 @@ server <- function(input, output) {
     )
   )
   
-  output$good_gse <- "Nothing yet"
-  
-  output$gse_gsm_table <- DT::renderDataTable({
-    if (input$GSE_GSM == 0)
-      return (gsm2()) ###
-    else ## breaks when there is no search results
-      return (rows$df)}, options=list(searching=TRUE)) ###
+  output$filteredgse <- DT::renderDataTable({
+ #   if (input$GSE_GSM == 0)
+      return (filtered_gse()[,c(1,2,7)]) ###
+#    else ## breaks when there is no search results
+#      return (rows$df)
+  }, options=list(searching=TRUE, pageLength=50))
+ 
+  output$GSElist <- renderTable(gse_to_keep())
+  #output$GSElist <- renderTable({filter(gse_gsm.df,gse %in% gse_to_keep()$gse)})
+  #output$GSElist <- renderTable(filtered_gse()[input$filteredgse_rows_selected,c(3,7)])
   
   output$gsm_table <- DT::renderDataTable({
     if (input$Assign == 0)
-      return filteredgsm())
+      return (filteredgsm())
     else ## breaks when there is no search results
-      return (rows$df), options=list(searching=TRUE)})
+      return (rows$df)}, options=list(searching=TRUE))
 
   output$finishedtable <- renderTable({
     if (input$Remove == 0)
-      return (gsm2())
+      return (filteredgsm()[,c(1,2,7,19)])
     else
-      return (finishedtable())})
-  
+      return (finishedtable()[,c(1,2,3,7,19)])})
+
 }
 
 shinyApp(ui, server)
