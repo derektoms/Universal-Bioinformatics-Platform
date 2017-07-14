@@ -136,10 +136,6 @@ server <- function(input, output) {
   
   gse_to_keep <- eventReactive(input$GSE_GSM, {
     filtered_gse()[input$filteredgse_rows_selected,c(3,7)]
-    
-   #     filtered_gse[input$filtered_gse_rows_selected,"gse"]
-      #rows$gse <- gse_to_keep
-      #gsm2 <<- filter(gsm,series_id %in% filteredgse()$gse)
   })
    
   ## Assign categories to each sample (GSM)
@@ -187,9 +183,14 @@ server <- function(input, output) {
 #      return (rows$df)
   }, options=list(searching=TRUE, pageLength=50))
  
-  output$GSElist <- renderTable(gse_to_keep())
-  #output$GSElist <- renderTable({filter(gse_gsm.df,gse %in% gse_to_keep()$gse)})
-  #output$GSElist <- renderTable(filtered_gse()[input$filteredgse_rows_selected,c(3,7)])
+  #output$GSElist <- renderTable(gse_to_keep()$gse) ## works
+  #output$GSElist <- renderTable(gse_gsm.df[c(1,2,3),]) ## works
+  #output$GSElist <- renderTable(filter(gse_gsm.df,gse %in% c('GSE1','GSE2'))) ## works
+  output$GSElist <- renderTable(
+    if (input$GSE_GSM == 0)
+      return ()
+    else
+      return (filter(gse_gsm.df,gse %in% gse_to_keep()$gse)))## works
   
   output$gsm_table <- DT::renderDataTable({
     if (input$Assign == 0)
