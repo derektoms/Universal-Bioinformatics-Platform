@@ -77,6 +77,7 @@ ui <- fluidPage(
              tabPanel("Search for GEO data series (GSE)",  
                       #search GSE, and select which to include
                       helpText("After searching, click on the second tab to proceed to the next page"),
+                      radioButtons("GPL", "Choose species", choices = c("Mouse (GPL1260)" = "mouse", "Human (GPL570)" = "human"),
                       textInput("Key", "Enter search terms, separated by commas", value = ""),
                       actionButton("Search", "Search")
              ),
@@ -194,7 +195,7 @@ server <- function(input, output) {
   
   output$gsm_table <- DT::renderDataTable({
     if (input$Assign == 0)
-      return (filteredgsm())
+      return (filter(gsm.df,series %in% gse_to_keep()$gse))
     else ## breaks when there is no search results
       return (rows$df)}, options=list(searching=TRUE))
 
