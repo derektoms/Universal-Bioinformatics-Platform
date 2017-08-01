@@ -1,4 +1,4 @@
-# 2017-07-13
+# 2017-07-31
 
 ########################################
 #$#$#$#$#$#$    HEADER     $#$#$#$#$#$#$
@@ -71,15 +71,40 @@ gse_gsm = tbl(db, 'gse_gsm')
 #$#$#$#$#$#$    Shiny App  $#$#$#$#$#$#$
 ########################################
 
+## Javascript
+jscode <- '
+$(function() {
+  var $els = $("[data-proxy-click]");
+  $.each(
+    $els,
+    function(idx, el) {
+      var $el = $(el);
+      var $proxy = $("#" + $el.data("proxyClick"));
+      $el.keydown(function (e) {
+        if (e.keyCode == 13) {
+          $proxy.click();
+        }
+      });
+    }
+  );
+});
+'
+
+## UI
 ui <- fluidPage(
+  tags$head(tags$script(HTML(jscode))),
   #creation of a navigation bar and mulitple pages
   navbarPage("Bioinformatics Software",
              tabPanel("Search for GEO data series (GSE)",  
                       #search GSE, and select which to include
                       helpText("After searching, click on the second tab to proceed to the next page"),
-                      radioButtons("GPL", "Choose species", choices = c("Mouse (GPL1260)" = "mouse", "Human (GPL570)" = "human"),
-                      textInput("Key", "Enter search terms, separated by commas", value = ""),
-                      actionButton("Search", "Search")
+                      radioButtons("gplSelection", "Choose species:", choices = c("Mouse (GPL1260)" = "mouse", "Human (GPL570)" = "human")),
+                      textOutput("gplSelection"),
+                      actionButton("Search", "Search"),
+                      tagAppendAttributes(
+                        textInput("Key", "Enter search terms, separated by commas", value = ""),
+                        `data-proxy-click` = "Search"
+                      )  
              ),
              tabPanel("Select GEO data series (GSE)", uiOutput("page1"), 
                       helpText("Highlight the desired search results (GSE) and click 'Retrieve GSM' to proceed"),
@@ -87,7 +112,7 @@ ui <- fluidPage(
                       helpText("Do not click 'finish' until all selections have been made. 
                                This button removes the unselected rows and generates a new table on the next page."),
                       DT::dataTableOutput("filteredgse"),
-                      tableOutput("GSElist")
+                      tableOutput("GSEtoGSMlist")
                       
              ),
              tabPanel("Define categories for GEO samples (GSM)", uiOutput("page2"), 
@@ -97,8 +122,6 @@ ui <- fluidPage(
                       textInput("cat2", "Define Category 2"),
                       textInput("cat3", "Define Category 3")
              ),
-             
-             # changed the format of this slightly to accomodate the DT package (for row selection)
              tabPanel("Assign samples to categories", uiOutput("page3"), 
                       helpText("Highlight the desired search results and click 'assign' to assign them to the specificed category"),
                       actionButton("Assign", "Assign Categories"),
@@ -113,10 +136,22 @@ ui <- fluidPage(
   )
 )
 
-server <- function(input, output) {
+## SERVER
+server <- function(input, output,session) {
+  ## Change GPL
+  #gplSelection <- switch(input$gplSelection,
+  #                 mouse = 'GPL1261',
+  #                 human = 'GPL570')
+  output$gplSelection <- renderText({
+    paste("You chose", input$gplSelection)
+  })
+  
+  ## Convert SQLite to data frames
   as.data.frame.DataTable(gse) -> gse.df
   as.data.frame.DataTable(gse_gsm) -> gse_gsm.df
+  #as.data.frame.DataTable(gsm) -> gsm.df
   gse_to_filter <- data.frame(gse="")
+  
   ## Search functions
   Totalchar <- eventReactive(input$Search, {nchar(input$Key)})
   Commas <- eventReactive(input$Search, {which(strsplit(input$Key, "")[[1]]==",")})
@@ -140,29 +175,33 @@ server <- function(input, output) {
   })
    
   ## Assign categories to each sample (GSM)
+    # test
+  gsm_annotated <- eventReactive(input$GSE_GSM, {
+    dplyr::filter(gsm.df,series_id %in% gse_to_keep()$gse)
+  })
+  
   #import dataframe as reactive
   #for some reason the following line is not needed:
-  #rows <- reactiveValues() 
+  rows <- reactiveValues() 
   eventReactive(input$Assign, {
     #s <- eventReactive(input$Lock, input$gsm_table_rows_selected)
     if (input$Assign == 1) {
-      gse_selected <- filteredgse()
-      gse_selected[input$gse_gsm_table_rows_selected,"category"] <- input$selection
-      rows$df <- gse_selected
-      gse_selected <<- rows$df # '<<-' is necessary to get this to the enclosing environment
+      gsm_table <- filteredgsm()
+      gsm_selected[input$gsm_table_rows_selected,"category"] <- input$selection
+      rows$df <- gsm_selected
+      gsm_selected <<- rows$df # '<<-' is necessary to get this to the enclosing environment
     }
     else
     {
-      gse_selected[input$gse_gsm_table_rows_selected,"category"] <- input$selection
-      rows$df <- gse_selected
-      gse_selected <<- rows$df
+      gsm_selected[input$gsm_table_rows_selected,"category"] <- input$selection
+      rows$df <- gsm_selected
+      gsm_selected <<- rows$df
     }
   })
   
   finishedtable <- eventReactive(input$Remove, {
     dplyr::filter(rows$df, category %in% c(input$cat1, input$cat2, input$cat3))
   })
-  
  
   ## Outputs
   output$page3 <- renderUI(
@@ -184,26 +223,24 @@ server <- function(input, output) {
 #      return (rows$df)
   }, options=list(searching=TRUE, pageLength=50))
  
-  #output$GSElist <- renderTable(gse_to_keep()$gse) ## works
-  #output$GSElist <- renderTable(gse_gsm.df[c(1,2,3),]) ## works
-  #output$GSElist <- renderTable(filter(gse_gsm.df,gse %in% c('GSE1','GSE2'))) ## works
-  output$GSElist <- renderTable(
+  output$GSEtoGSMlist <- renderTable(
     if (input$GSE_GSM == 0)
       return ()
     else
       return (filter(gse_gsm.df,gse %in% gse_to_keep()$gse)))## works
   
-  output$gsm_table <- DT::renderDataTable({
-    if (input$Assign == 0)
-      return (filter(gsm.df,series %in% gse_to_keep()$gse))
-    else ## breaks when there is no search results
-      return (rows$df)}, options=list(searching=TRUE))
+ # output$gsm_table <- DT::renderDataTable({
+ #   filter(gsm.df,series_id %in% gse_to_keep()$gse)}, options=list(searching=TRUE))
+    output$gsm_table <- DT::renderDataTable({gsm_annotated()}, options=list(searching=TRUE))
 
   output$finishedtable <- renderTable({
     if (input$Remove == 0)
       return (filteredgsm()[,c(1,2,7,19)])
     else
       return (finishedtable()[,c(1,2,3,7,19)])})
+  
+  ## Kill shinyApp when session closes
+  session$onSessionEnded(stopApp)
 
 }
 
