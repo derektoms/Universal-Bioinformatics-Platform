@@ -100,11 +100,11 @@ ui <- fluidPage(
                       helpText("After searching, click on the second tab to proceed to the next page"),
                       radioButtons("gplSelection", "Choose species:", choices = c("Mouse (GPL1260)" = "mouse", "Human (GPL570)" = "human")),
                       textOutput("gplSelection"),
-                      actionButton("Search", "Search"),
                       tagAppendAttributes(
                         textInput("Key", "Enter search terms, separated by commas", value = ""),
                         `data-proxy-click` = "Search"
-                      )  
+                      ),
+                      actionButton("Search", "Search")
              ),
              tabPanel("Select GEO data series (GSE)", uiOutput("page1"), 
                       helpText("Highlight the desired search results (GSE) and click 'Retrieve GSM' to proceed"),
@@ -125,6 +125,7 @@ ui <- fluidPage(
              tabPanel("Assign samples to categories", uiOutput("page3"), 
                       helpText("Highlight the desired search results and click 'assign' to assign them to the specificed category"),
                       actionButton("Assign", "Assign Categories"),
+                      verbatimTextOutput("selectedRows"),
                       actionButton("Remove", "Finalize selections and remove not included"),
                       helpText("Do not click 'finish' until all selections have been made. 
                                This button removes the unselected rows and generates a new table on the next page."),
@@ -150,6 +151,8 @@ server <- function(input, output,session) {
   as.data.frame.DataTable(gse) -> gse.df
   as.data.frame.DataTable(gse_gsm) -> gse_gsm.df
   #as.data.frame.DataTable(gsm) -> gsm.df
+  gsm.df$category <- rep("Not yet assigned", nrow(gsm.df)) # I don't love this but it should get the job done
+  gsm_selected <- gsm.df
   gse_to_filter <- data.frame(gse="")
   
   ## Search functions
@@ -175,32 +178,37 @@ server <- function(input, output,session) {
   })
    
   ## Assign categories to each sample (GSM)
-    # test
+  # Use GSE to load GSM
   gsm_annotated <- eventReactive(input$GSE_GSM, {
-    dplyr::filter(gsm.df,series_id %in% gse_to_keep()$gse)
+     dplyr::filter(gsm.df,series_id %in% gse_to_keep()$gse)
   })
   
-  #import dataframe as reactive
-  #for some reason the following line is not needed:
-  rows <- reactiveValues() 
-  eventReactive(input$Assign, {
-    #s <- eventReactive(input$Lock, input$gsm_table_rows_selected)
-    if (input$Assign == 1) {
-      gsm_table <- filteredgsm()
-      gsm_selected[input$gsm_table_rows_selected,"category"] <- input$selection
-      rows$df <- gsm_selected
-      gsm_selected <<- rows$df # '<<-' is necessary to get this to the enclosing environment
-    }
-    else
-    {
-      gsm_selected[input$gsm_table_rows_selected,"category"] <- input$selection
-      rows$df <- gsm_selected
-      gsm_selected <<- rows$df
-    }
-  })
+  # Assign categories
+#  rows <- reactiveValues()
+#  eventReactive(input$Assign, {
+#    if (input$Assign == 1) {
+#      gsm_selected <- gsm_annotated()
+#      gsm_selected[input$gsm_table_rows_selected,"category"] <- input$selection
+#      rows$df <- gsm_selected
+#      gsm_selected <<- rows$df # '<<-' is necessary to get this to the enclosing environment
+#    }
+#    else
+#    {
+#      gsm_selected[input$gsm_table_rows_selected,"category"] <- input$selection
+#      rows$df <- gsm_selected
+#      gsm_selected <<- rows$df
+#    }
+#  })
+  
+  
+  s <- eventReactive(input$Assign, input$gsm_table_rows_selected)
+  
+  eventReactive(input$Assign, {gsm_annotated()[s(),"category"] <- input$selection})
+
+  
   
   finishedtable <- eventReactive(input$Remove, {
-    dplyr::filter(rows$df, category %in% c(input$cat1, input$cat2, input$cat3))
+    dplyr::filter(rows, category %in% c(input$cat1, input$cat2, input$cat3))
   })
  
   ## Outputs
@@ -221,24 +229,27 @@ server <- function(input, output,session) {
       return (filtered_gse()[,c(1,2,7)]) ###
 #    else ## breaks when there is no search results
 #      return (rows$df)
-  }, options=list(searching=TRUE, pageLength=50))
+  }, options=list(searching=TRUE, pageLength=20))
  
   output$GSEtoGSMlist <- renderTable(
     if (input$GSE_GSM == 0)
       return ()
     else
-      return (filter(gse_gsm.df,gse %in% gse_to_keep()$gse)))## works
+      return (filter(gse_gsm.df,gse %in% gse_to_keep()$gse)))
   
  # output$gsm_table <- DT::renderDataTable({
  #   filter(gsm.df,series_id %in% gse_to_keep()$gse)}, options=list(searching=TRUE))
-    output$gsm_table <- DT::renderDataTable({gsm_annotated()}, options=list(searching=TRUE))
+#  output$gsm_table <- DT::renderDataTable(gsm_annotated()[s(),c(2,3,27,33)],options=list(searching=FALSE))
+    output$gsm_table <- DT::renderDataTable({
+      if (input$Assign == 0)
+        return (gsm_annotated()[,c(2,3,27,33)])
+      else
+        return (gsm_annotated()[,c(2,3,27,33)])}, options=list(searching=FALSE))
 
-  output$finishedtable <- renderTable({
-    if (input$Remove == 0)
-      return (filteredgsm()[,c(1,2,7,19)])
-    else
-      return (finishedtable()[,c(1,2,3,7,19)])})
+  output$finishedtable <- renderTable({rows$df})
   
+  output$selectedRows <- renderText(paste(gsm_annotated()[s(),2],input$selection)) # I can get what I want to target displayed... now why doesn't this work!?
+    
   ## Kill shinyApp when session closes
   session$onSessionEnded(stopApp)
 
